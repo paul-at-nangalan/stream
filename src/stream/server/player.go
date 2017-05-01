@@ -13,13 +13,9 @@ import (
 )
 
 var running *exec.Cmd = nil
+var stdin io.WriteCloser
 
 func sendStdin(ch string){
-	stdin, err := running.StdinPipe()
-	if err != nil {
-		panic("Failed to get stdin")
-	}
-	defer stdin.Close()
 	io.WriteString(stdin, ch)
 }
 
@@ -28,7 +24,7 @@ func displayPlayer(w http.ResponseWriter) {
 	if err != nil {
 		panic(err.Error())
 	}
-	templatefile, _ :=  template.ParseFiles(dir + "/views/list.html")
+	templatefile, _ :=  template.ParseFiles(dir + "/views/play.html")
 	buff := bytes.NewBufferString("")
 	params := make(map[string]string)
 	err = templatefile.Execute(buff, params)
@@ -42,7 +38,7 @@ func displayPlayer(w http.ResponseWriter) {
 func findMp4(dir string)string{
 	files := getTorrentFiles(dir, ".mp4")
 	if len(files) > 0 {
-		return files[0]
+		return dir + "/" + files[0]
 	}
 	panic("No mp4 found")
 }
@@ -65,9 +61,15 @@ func PlayHandler(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		panic( err.Error() )
 	}
-	fullfile := usr.HomeDir + "/" + file
-	cmd := exec.Command("omxplayer", "--pos", start,fullfile)
-	err = cmd.Run()
+	fullfile := usr.HomeDir + "/mov/" + file
+	fullfile = findMp4(fullfile)
+	log.Println("Running omxplayer --pos " + start + " " + fullfile)
+	cmd := exec.Command("omxplayer", fullfile)
+	stdin, err = cmd.StdinPipe()
+	if err != nil {
+		panic("Failed to get stdin" + err.Error())
+	}
+	err = cmd.Start()
 	if err != nil {
 		panic( err.Error() )
 	}
