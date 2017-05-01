@@ -110,6 +110,9 @@ func CreateServer(dl *downloader.Downloader, port string) {
 	http.HandleFunc("/list", ListHandler)
 	http.HandleFunc("/download", DownloadHandler)
 	http.HandleFunc("/play", PlayHandler)
+	http.HandleFunc("/pause", PauseHandler)
+	http.HandleFunc("/stop", QuitHandler)
+	http.HandleFunc("/resume", ResumeHandler)
 	err := http.ListenAndServe(":" + port, nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
