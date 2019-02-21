@@ -11,12 +11,36 @@ import (
 	"path/filepath"
 	"os"
 	"bytes"
-	"stream/downloader"
+	"stream/downloader/downloadpool"
+	"stream/cfg"
 )
 
-var dlhandler *downloader.Downloader
+type ServerCfg struct{
+	cert string
+	key string
+	port string
+}
 
-func getTorrentFiles(dir, ext string) []string{
+func (p *ServerCfg)Set(){
+	c := cfg.Read("server")
+	p.cert = c["cert"].(string)
+	p.key = c["key"].(string)
+	p.port = c["port"].(string)
+}
+
+type HttpServer struct {
+	svrcfg ServerCfg
+	downloadpool *downloadpool.DownloadPool
+}
+
+func NewHttpServer(staging string, proxy string)*HttpServer{
+	pool := downloadpool.NewDownloadPool(staging, proxy)
+	return &HttpServer{
+		downloadpool:pool,
+	}
+}
+
+func (p *HttpServer)getTorrentFiles(dir, ext string) []string{
 	files := make([]string, 0, 0)
 	filelist, err := ioutil.ReadDir(dir)
 	if err != nil {
@@ -31,7 +55,7 @@ func getTorrentFiles(dir, ext string) []string{
 	}
 	return files
 }
-func formatTorrentfiles(files []string, action, path string) string {
+func (p *HttpServer)formatTorrentfiles(files []string, action, path string) string {
 
 	html := `<table class="table">
 			<thead>
@@ -59,7 +83,7 @@ func formatTorrentfiles(files []string, action, path string) string {
 		</table>`
 	return html
 }
-func ListHandler(w http.ResponseWriter, req *http.Request) {
+func (p *HttpServer)ListHandler(w http.ResponseWriter, req *http.Request) {
 	log.Print("List handler for " + req.URL.Path)
 
 	usr, err := user.Current()
@@ -74,14 +98,14 @@ func ListHandler(w http.ResponseWriter, req *http.Request) {
 	templatefile, _ :=  template.ParseFiles(dir + "/views/list.html")
 
 	params := make(map[string]interface{})
-	files := getTorrentFiles(usr.HomeDir + "/Downloads", ".torrent")
-	html := formatTorrentfiles(files, "Download", "download")
+	files := p.getTorrentFiles(usr.HomeDir + "/Downloads", ".torrent")
+	html := p.formatTorrentfiles(files, "Download", "download")
 	params["Files"] = template.HTML(html)
-	files = getTorrentFiles(usr.HomeDir + "/Downloads", ".inprogress")
-	html = formatTorrentfiles(files, "--", "list")
+	files = p.getTorrentFiles(usr.HomeDir + "/Downloads", ".inprogress")
+	html = p.formatTorrentfiles(files, "--", "list")
 	params["Inprogress"] = template.HTML(html)
-	files = getTorrentFiles(usr.HomeDir + "/mov", "")
-	html = formatTorrentfiles(files, "Play", "play")
+	files = p.getTorrentFiles(usr.HomeDir + "/mov", "")
+	html = p.formatTorrentfiles(files, "Play", "play")
 	params["Complete"] = template.HTML(html)
 	buff := bytes.NewBufferString("")
 	err = templatefile.Execute(buff, params)
@@ -92,28 +116,33 @@ func ListHandler(w http.ResponseWriter, req *http.Request) {
 
 	w.Write(buff.Bytes())
 }
-func DownloadHandler(w http.ResponseWriter, req *http.Request) {
+func (p *HttpServer)DownloadHandler(w http.ResponseWriter, req *http.Request) {
 	log.Print("Download handler for " + req.URL.Path)
 	err := req.ParseForm()
 	if err != nil {
 		panic("Failed to parse request")
 	}
 	file := req.Form["file"][0]
-	go dlhandler.Start(file)
+	dl := downloadpool.Download{
+		Url: file,
+	}
+	p.downloadpool.Enque(dl)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Download started"))
 }
 
-func CreateServer(dl *downloader.Downloader, port string) {
-	dlhandler = dl
-	http.HandleFunc("/", ListHandler)
-	http.HandleFunc("/list", ListHandler)
-	http.HandleFunc("/download", DownloadHandler)
-	http.HandleFunc("/play", PlayHandler)
-	http.HandleFunc("/pause", PauseHandler)
-	http.HandleFunc("/stop", QuitHandler)
-	http.HandleFunc("/resume", ResumeHandler)
-	err := http.ListenAndServe(":" + port, nil)
+func (p *HttpServer)CreateServer( servermode bool) {
+	p.svrcfg.Set()
+	http.HandleFunc("/", p.ListHandler)
+	http.HandleFunc("/list", p.ListHandler)
+	http.HandleFunc("/download", p.DownloadHandler)
+	if !servermode {
+		http.HandleFunc("/play", PlayHandler)
+		http.HandleFunc("/pause", PauseHandler)
+		http.HandleFunc("/stop", QuitHandler)
+		http.HandleFunc("/resume", ResumeHandler)
+	}
+	err := http.ListenAndServeTLS(":" + p.svrcfg.port, p.svrcfg.cert, p.svrcfg.key, nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}

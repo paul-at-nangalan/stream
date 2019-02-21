@@ -9,10 +9,14 @@ import (
 
 type Downloader struct {
 	staging string
+	proxyurl string
 }
 
-func New(staging string) Downloader {
-	return Downloader{staging: staging}
+func New(staging string, proxyurl string) Downloader {
+	return Downloader{
+		staging: staging,
+		proxyurl:proxyurl,
+	}
 }
 
 func (p *Downloader)Start(origtorrentfile string){
@@ -22,7 +26,10 @@ func (p *Downloader)Start(origtorrentfile string){
 	}
 	dir := usr.HomeDir + "/Downloads"
 	torrentfile := dir + "/" + origtorrentfile
-	cfg := torrent.Config{DataDir: p.staging}
+	cfg := torrent.ClientConfig{
+		DataDir: p.staging,
+		ProxyURL: p.proxyurl,
+	}
 	c, err := torrent.NewClient(&cfg)
 	if err != nil {
 		panic("failed to create torrent with err " + err.Error())
